@@ -1,0 +1,128 @@
+"""Pipeline orchestration.
+
+Diarization does not depend on the transcript, and it runs on the GPU while
+ASR runs on the CPU, so the two are started together and the wall time is
+max(ASR, diarization) instead of their sum. On an 80-minute recording that
+takes diarization off the critical path entirely: it finishes around minute 6
+while ASR runs to minute 17.
+
+Stages are injected so the concurrency, merge and degradation logic can be
+tested without loading any model.
+"""
+
+import dataclasses
+import pathlib
+import threading
+import time
+from typing import Any, Callable
+
+from whisp import stages as default_stages
+from whisp.timing import StageLog
+
+
+@dataclasses.dataclass
+class Stages:
+    decode: Callable[..., Any]
+    duration: Callable[..., float]
+    load_asr: Callable[..., Any]
+    transcribe: Callable[..., dict]
+    align: Callable[..., dict]
+    diarize: Callable[..., Any]
+    assign: Callable[..., dict]
+    write: Callable[..., Any]
+
+
+def default() -> Stages:
+    import whisperx
+    from whisperx.utils import get_writer
+
+    def write(result, audio_path, output_dir):
+        writer = get_writer("txt", output_dir)
+        writer(
+            result,
+            audio_path,
+            {"highlight_words": False, "max_line_count": None, "max_line_width": None},
+        )
+
+    return Stages(
+        decode=default_stages.decode,
+        duration=default_stages.duration_seconds,
+        load_asr=default_stages.load_asr,
+        transcribe=default_stages.transcribe,
+        align=default_stages.align_segments,
+        diarize=default_stages.diarize,
+        assign=whisperx.assign_word_speakers,
+        write=write,
+    )
+
+
+def run(
+    audio_path: str,
+    output_dir: str,
+    language: str,
+    model_name: str,
+    compute_type: str,
+    device: str,
+    hf_token: str,
+    batch_size: int,
+    diarize_batch_size: int,
+    asr_thread_count: int,
+    diarize_enabled: bool,
+    parallel: bool,
+    stages: Stages | None = None,
+    log: StageLog | None = None,
+) -> pathlib.Path:
+    stages = stages or default()
+    started = time.monotonic()
+
+    audio = stages.decode(audio_path)
+    audio_seconds = stages.duration(audio)
+    log = log or StageLog(audio_seconds=audio_seconds)
+    log.record("decode", time.monotonic() - started)
+
+    diarization: dict[str, Any] = {}
+
+    def diarize_worker():
+        try:
+            worker_started = time.monotonic()
+            diarization["df"] = stages.diarize(
+                audio, device, hf_token, diarize_batch_size
+            )
+            log.record("diarize", time.monotonic() - worker_started)
+        except Exception as exc:  # transcript matters more than speaker labels
+            diarization["error"] = exc
+
+    worker = None
+    if diarize_enabled:
+        if parallel:
+            worker = threading.Thread(target=diarize_worker, name="whisp-diarize")
+            worker.start()
+        else:
+            diarize_worker()
+
+    with log.stage("asr"):
+        asr_model = stages.load_asr(
+            model_name, compute_type, language, asr_thread_count, hf_token
+        )
+        result = stages.transcribe(asr_model, audio, batch_size, language)
+    del asr_model
+
+    if worker is not None:
+        worker.join()
+
+    if diarize_enabled and "df" in diarization:
+        with log.stage("align"):
+            result = stages.align(result["segments"], audio, language, device)
+        result = stages.assign(diarization["df"], result)
+    elif diarize_enabled:
+        print(
+            f"whisp: diarization failed ({diarization.get('error')}); "
+            "writing the transcript without speaker labels",
+            flush=True,
+        )
+
+    stages.write(result, audio_path, output_dir)
+    log.total(time.monotonic() - started)
+
+    stem = pathlib.Path(audio_path).stem
+    return pathlib.Path(output_dir) / f"{stem}.txt"

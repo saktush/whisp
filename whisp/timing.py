@@ -7,6 +7,7 @@ redirected to a file, which made the log lag reality by minutes.
 
 import contextlib
 import sys
+import threading
 import time
 
 
@@ -15,6 +16,12 @@ class StageLog:
         self.audio_seconds = audio_seconds
         self.stream = stream if stream is not None else sys.stderr
         self.stages: dict[str, float] = {}
+        # whisp.pipeline runs diarization on a background thread while ASR
+        # continues on the main thread, so record() can be called from both
+        # at once. print()'s write-then-newline is two separate stream
+        # operations; without this lock two concurrent emits can interleave
+        # into a garbled log line.
+        self._lock = threading.Lock()
 
     def _format(self, label: str, seconds: float) -> str:
         line = f"whisp: {label} {seconds:.1f}s"
@@ -23,7 +30,8 @@ class StageLog:
         return line
 
     def _emit(self, line: str) -> str:
-        print(line, file=self.stream, flush=True)
+        with self._lock:
+            print(line, file=self.stream, flush=True)
         return line
 
     def record(self, name: str, seconds: float) -> str:
