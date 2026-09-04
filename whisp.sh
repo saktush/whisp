@@ -12,15 +12,19 @@ export PATH="/opt/homebrew/bin:$HOME/.local/bin:$PATH"
 # --- Argument parsing ---
 FILE=""
 SUMMARIZE=0
+DIARIZE=1
 
 for arg in "$@"; do
     case "$arg" in
         -sum)
             SUMMARIZE=1
             ;;
+        --no-diarize)
+            DIARIZE=0
+            ;;
         -*)
             echo "Error: Unknown option '$arg'" >&2
-            echo "Usage: whisp <filename> [-sum]" >&2
+            echo "Usage: whisp <filename> [-sum] [--no-diarize]" >&2
             exit 1
             ;;
         *)
@@ -35,7 +39,7 @@ done
 
 if [ -z "$FILE" ]; then
     echo "Error: No file provided."
-    echo "Usage: whisp <filename> [-sum]"
+    echo "Usage: whisp <filename> [-sum] [--no-diarize]"
     exit 1
 fi
 
@@ -66,15 +70,25 @@ LANG_CODE="${WHISP_LANG:-ru}"
 COMPUTE_TYPE="${WHISP_COMPUTE_TYPE:-int8}"
 SUMMARY_TIMEOUT="${WHISP_SUMMARY_TIMEOUT:-900}"
 
-# Run WhisperX
-"$SCRIPT_DIR/.venv/bin/whisperx" "$FILE" \
+DIARIZE_ARGS=()
+if [ "$DIARIZE" -eq 0 ]; then
+    DIARIZE_ARGS+=(--no-diarize)
+fi
+
+# The whisperx CLI takes one --device for every stage, which pins diarization
+# to the CPU because CTranslate2 has no Metal backend. This driver picks a
+# device per stage and runs diarization alongside ASR instead.
+#
+# "${DIARIZE_ARGS[@]+"${DIARIZE_ARGS[@]}"}" rather than "${DIARIZE_ARGS[@]}":
+# macOS ships bash 3.2, where expanding an empty array under `set -u` aborts
+# with "unbound variable". The array is empty on the default path -- every run
+# that keeps diarization on -- so the plain form would break normal use.
+PYTHONPATH="$SCRIPT_DIR" "$SCRIPT_DIR/.venv/bin/python" -m whisp "$FILE" \
     --model "$MODEL" \
     --language "$LANG_CODE" \
-    --compute_type "$COMPUTE_TYPE" \
-    --diarize \
-    --hf_token "$HF_TOKEN" \
-    --output_dir "$OUTPUT_DIR" \
-    --output_format txt
+    --compute-type "$COMPUTE_TYPE" \
+    --output-dir "$OUTPUT_DIR" \
+    "${DIARIZE_ARGS[@]+"${DIARIZE_ARGS[@]}"}"
 
 BASENAME="$(basename "$FILE")"
 BASENAME="${BASENAME%.*}"
