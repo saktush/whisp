@@ -1282,12 +1282,17 @@ fi
 # The whisperx CLI takes one --device for every stage, which pins diarization
 # to the CPU because CTranslate2 has no Metal backend. This driver picks a
 # device per stage and runs diarization alongside ASR instead.
+#
+# "${DIARIZE_ARGS[@]+"${DIARIZE_ARGS[@]}"}" rather than "${DIARIZE_ARGS[@]}":
+# macOS ships bash 3.2, where expanding an empty array under `set -u` aborts
+# with "unbound variable". The array is empty on the default path -- every run
+# that keeps diarization on -- so the plain form would break normal use.
 PYTHONPATH="$SCRIPT_DIR" "$SCRIPT_DIR/.venv/bin/python" -m whisp "$FILE" \
     --model "$MODEL" \
     --language "$LANG_CODE" \
     --compute-type "$COMPUTE_TYPE" \
     --output-dir "$OUTPUT_DIR" \
-    "${DIARIZE_ARGS[@]}"
+    "${DIARIZE_ARGS[@]+"${DIARIZE_ARGS[@]}"}"
 ```
 
 `HF_TOKEN` уже экспортирован через `set -a` при чтении `.env`, поэтому драйвер получает его из окружения.
