@@ -92,6 +92,24 @@ def test_diarization_failure_does_not_lose_the_transcript():
     assert "assign" not in stages.calls
 
 
+def test_diarize_timeout_does_not_block_the_transcript():
+    """A hung diarize() must not hold up the transcript forever.
+
+    Uses an Event that is never set, so diarize() blocks indefinitely; the
+    worker thread is a daemon and is simply abandoned. A tiny diarize_timeout
+    keeps this test well under a second instead of waiting minutes.
+    """
+
+    def hanging_diarize(*args, **kwargs):
+        threading.Event().wait()
+        return "DIARIZE_DF"  # never reached
+
+    stages = make_stages(diarize=hanging_diarize)
+    run(stages, diarize_timeout=0.01)
+    assert "write" in stages.calls
+    assert "assign" not in stages.calls
+
+
 def test_no_diarize_skips_diarization_and_alignment():
     stages = make_stages()
     run(stages, diarize_enabled=False)

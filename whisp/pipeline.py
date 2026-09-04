@@ -71,6 +71,7 @@ def run(
     parallel: bool,
     stages: Stages | None = None,
     log: StageLog | None = None,
+    diarize_timeout: float | None = None,
 ) -> pathlib.Path:
     stages = stages or default()
     started = time.monotonic()
@@ -79,6 +80,18 @@ def run(
     audio_seconds = stages.duration(audio)
     log = log or StageLog(audio_seconds=audio_seconds)
     log.record("decode", time.monotonic() - started)
+
+    # Bound how long we wait for diarization at the join point below, which
+    # is *after* transcription has already finished. Diarization starts at
+    # the same moment as transcription; on the GPU path it finishes in
+    # roughly a third of transcription's time, and even on the slowest
+    # measured path -- CPU-only diarization at RTF 0.89 against
+    # transcription's 0.21 -- it needs well under one further
+    # realtime-equivalent after transcription ends. One times the audio
+    # duration is therefore generous headroom, and the 300-second floor
+    # protects short recordings.
+    if diarize_timeout is None:
+        diarize_timeout = max(300.0, audio_seconds)
 
     diarization: dict[str, Any] = {}
 
@@ -95,7 +108,15 @@ def run(
     worker = None
     if diarize_enabled:
         if parallel:
-            worker = threading.Thread(target=diarize_worker, name="whisp-diarize")
+            # daemon=True: the transcript must never wait on a stuck worker.
+            # If diarization hangs past the join timeout below, the process
+            # still needs to be able to exit once the transcript is written.
+            # A daemon thread doing torch/MPS work that gets torn down
+            # abruptly at interpreter exit may print shutdown noise -- an
+            # accepted trade against hanging forever.
+            worker = threading.Thread(
+                target=diarize_worker, name="whisp-diarize", daemon=True
+            )
             worker.start()
         else:
             diarize_worker()
@@ -107,13 +128,21 @@ def run(
         result = stages.transcribe(asr_model, audio, batch_size, language)
     del asr_model
 
+    timed_out = False
     if worker is not None:
-        worker.join()
+        worker.join(timeout=diarize_timeout)
+        timed_out = worker.is_alive()
 
     if diarize_enabled and "df" in diarization:
         with log.stage("align"):
             result = stages.align(result["segments"], audio, language, device)
         result = stages.assign(diarization["df"], result)
+    elif diarize_enabled and timed_out:
+        print(
+            f"whisp: diarization timed out after {diarize_timeout:.0f}s; "
+            "writing the transcript without speaker labels",
+            flush=True,
+        )
     elif diarize_enabled:
         print(
             f"whisp: diarization failed ({diarization.get('error')}); "
