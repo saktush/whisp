@@ -2,30 +2,12 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=whisp-lib.sh
+source "$SCRIPT_DIR/whisp-lib.sh"
 
 # Ensure ffmpeg (Homebrew) and claude (~/.local/bin) are on PATH regardless of
 # caller's environment (e.g. the Folder Actions dispatcher runs with a minimal PATH).
 export PATH="/opt/homebrew/bin:$HOME/.local/bin:$PATH"
-
-# Run "$@" with stdin from $3, redirecting output to $2, killing it if it
-# runs longer than $1 seconds. Hand-rolled because no timeout/gtimeout binary
-# exists on this Mac. Stdin must be passed in and redirected right here (not
-# inherited from the caller) -- bash drops an inherited stdin redirect to
-# /dev/null for a backgrounded (&) command unless the redirect is written on
-# that exact command line.
-run_with_timeout() {
-    local timeout_secs="$1" out_file="$2" in_file="$3"
-    shift 3
-    "$@" <"$in_file" >"$out_file" 2>&1 &
-    local cmd_pid=$!
-    ( sleep "$timeout_secs"; kill -TERM "$cmd_pid" 2>/dev/null ) &
-    local watcher_pid=$!
-    local status=0
-    wait "$cmd_pid" || status=$?
-    kill "$watcher_pid" 2>/dev/null || true
-    wait "$watcher_pid" 2>/dev/null || true
-    return "$status"
-}
 
 # --- Argument parsing ---
 FILE=""
@@ -82,6 +64,7 @@ OUTPUT_DIR="$(cd "$(dirname "$FILE")" && pwd)"
 MODEL="${WHISP_MODEL:-turbo}"
 LANG_CODE="${WHISP_LANG:-ru}"
 COMPUTE_TYPE="${WHISP_COMPUTE_TYPE:-int8}"
+SUMMARY_TIMEOUT="${WHISP_SUMMARY_TIMEOUT:-900}"
 
 # Run WhisperX
 "$SCRIPT_DIR/.venv/bin/whisperx" "$FILE" \
@@ -115,17 +98,22 @@ if [ "$SUMMARIZE" -eq 1 ]; then
 Do not include any preamble, disclaimers, meta-commentary about the transcript format, or text outside this structure. Do not use any tools. Output plain text only, no markdown code fences."
 
     SUMMARY_TMP="$(mktemp)"
+    SUMMARY_FLAG="$(mktemp)"
 
-    if run_with_timeout 300 "$SUMMARY_TMP" "$TRANSCRIPT_FILE" claude -p \
-            --system-prompt "$SUMMARY_SYSTEM_PROMPT" \
-            --model sonnet; then
+    if run_with_timeout "$SUMMARY_TIMEOUT" "$SUMMARY_TMP" "$TRANSCRIPT_FILE" "$SUMMARY_FLAG" \
+            claude -p --system-prompt "$SUMMARY_SYSTEM_PROMPT" --model sonnet; then
         mv "$SUMMARY_TMP" "$SUMMARY_FILE"
         echo "Summary saved to $SUMMARY_FILE"
     else
-        echo "Warning: summary generation failed or timed out after 300s; the transcript itself is unaffected and is saved at $TRANSCRIPT_FILE." >&2
+        if [ -s "$SUMMARY_FLAG" ]; then
+            echo "Warning: summary generation timed out after ${SUMMARY_TIMEOUT}s; the transcript itself is unaffected and is saved at $TRANSCRIPT_FILE." >&2
+        else
+            echo "Warning: summary generation failed; the transcript itself is unaffected and is saved at $TRANSCRIPT_FILE. The command's own output follows." >&2
+        fi
         cat "$SUMMARY_TMP" >&2 || true
         rm -f "$SUMMARY_TMP"
     fi
+    rm -f "$SUMMARY_FLAG"
 fi
 
 # Audible completion signal (macOS system sound). Silently ignored if
