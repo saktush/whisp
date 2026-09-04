@@ -323,44 +323,148 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 - [ ] **Step 1: Написать падающий тест**
 
-Тест проверяет именно то, что легко сломать — константы параметров. Модели он не грузит.
+Тест сверяет наши константы не с литералом, а с argparse-дефолтами
+установленного whisperx: сравнение с литералом ловило бы только правки в
+нашем же файле, а настоящий риск — апгрейд whisperx, меняющий его дефолт.
+Тогда побайтовая совместимость сломалась бы молча. Модели тест не грузит.
 
 `tests/test_stages.py`:
 
 ```python
+"""The ASR options must match what the installed whisperx CLI would build.
+
+Comparing against a hardcoded literal would only catch edits to our own
+constants. The real risk is a whisperx upgrade changing one of its argparse
+defaults: the transcript would silently stop being byte-identical and
+nothing would say so. So the expected values are read out of the installed
+whisperx instead of being written down here.
+"""
+
+import ast
+import pathlib
+
+import numpy as np
+import whisperx
+
 from whisp import stages
 
 
-def test_asr_options_match_whisperx_cli_defaults():
-    assert stages.ASR_OPTIONS == {
-        "beam_size": 5,
-        "patience": 1.0,
-        "length_penalty": 1.0,
-        "temperatures": (0.0, 0.2, 0.4, 0.6000000000000001, 0.8, 1.0),
-        "compression_ratio_threshold": 2.4,
-        "log_prob_threshold": -1.0,
-        "no_speech_threshold": 0.6,
-        "condition_on_previous_text": False,
-        "initial_prompt": None,
-        "hotwords": None,
-        "suppress_tokens": [-1],
-        "suppress_numerals": False,
-    }
+def whisperx_cli_defaults() -> dict:
+    """argparse defaults declared by the installed whisperx CLI.
+
+    Parsed statically: whisperx builds its parser inside cli(), which also
+    runs the whole pipeline, so it cannot be imported and inspected.
+    """
+    source = pathlib.Path(whisperx.__file__).with_name("__main__.py").read_text()
+    defaults: dict = {}
+    for node in ast.walk(ast.parse(source)):
+        if not (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "add_argument"
+            and node.args
+        ):
+            continue
+        flag = next(
+            (
+                arg.value
+                for arg in node.args
+                if isinstance(arg, ast.Constant)
+                and isinstance(arg.value, str)
+                and arg.value.startswith("--")
+            ),
+            None,
+        )
+        if flag is None:
+            continue
+        for keyword in node.keywords:
+            if keyword.arg == "default":
+                try:
+                    defaults[flag[2:]] = ast.literal_eval(keyword.value)
+                except ValueError:
+                    pass  # e.g. --device, whose default is a torch call
+    return defaults
 
 
-def test_vad_options_match_whisperx_cli_defaults():
+def test_extraction_finds_the_arguments_we_depend_on():
+    """Guards the guard: a whisperx refactor could make the parse silently
+    return nothing, and every assertion below would pass on empty data."""
+    found = whisperx_cli_defaults()
+    for name in (
+        "beam_size",
+        "patience",
+        "length_penalty",
+        "temperature",
+        "temperature_increment_on_fallback",
+        "compression_ratio_threshold",
+        "logprob_threshold",
+        "no_speech_threshold",
+        "suppress_tokens",
+        "chunk_size",
+        "vad_onset",
+        "vad_offset",
+        "diarize_model",
+    ):
+        assert name in found, f"whisperx no longer declares --{name}"
+
+
+def test_asr_options_match_the_installed_whisperx_defaults():
+    found = whisperx_cli_defaults()
+    assert stages.ASR_OPTIONS["beam_size"] == found["beam_size"]
+    assert stages.ASR_OPTIONS["patience"] == found["patience"]
+    assert stages.ASR_OPTIONS["length_penalty"] == found["length_penalty"]
+    assert (
+        stages.ASR_OPTIONS["compression_ratio_threshold"]
+        == found["compression_ratio_threshold"]
+    )
+    assert stages.ASR_OPTIONS["log_prob_threshold"] == found["logprob_threshold"]
+    assert stages.ASR_OPTIONS["no_speech_threshold"] == found["no_speech_threshold"]
+    assert stages.ASR_OPTIONS["initial_prompt"] == found["initial_prompt"]
+    assert stages.ASR_OPTIONS["hotwords"] == found["hotwords"]
+    assert stages.ASR_OPTIONS["suppress_tokens"] == [
+        int(x) for x in found["suppress_tokens"].split(",")
+    ]
+
+
+def test_temperatures_expand_the_fallback_increment():
+    """whisperx turns --temperature 0 plus --temperature_increment_on_fallback
+    0.2 into a six-value tuple, not [0]. Getting this wrong changes decoding
+    and therefore the transcript."""
+    found = whisperx_cli_defaults()
+    expected = tuple(
+        np.arange(
+            found["temperature"],
+            1.0 + 1e-6,
+            found["temperature_increment_on_fallback"],
+        )
+    )
+    assert stages.ASR_OPTIONS["temperatures"] == expected
+    assert len(expected) == 6
+
+
+def test_condition_on_previous_text_is_forced_off():
+    """whisperx hardcodes False in transcribe.py regardless of the CLI flag."""
+    assert stages.ASR_OPTIONS["condition_on_previous_text"] is False
+
+
+def test_suppress_numerals_defaults_to_false():
+    """A store_true flag, so it declares no argparse default at all."""
+    assert "suppress_numerals" not in whisperx_cli_defaults()
+    assert stages.ASR_OPTIONS["suppress_numerals"] is False
+
+
+def test_vad_options_match_the_installed_whisperx_defaults():
+    found = whisperx_cli_defaults()
     assert stages.VAD_OPTIONS == {
-        "chunk_size": 30,
-        "vad_onset": 0.500,
-        "vad_offset": 0.363,
+        "chunk_size": found["chunk_size"],
+        "vad_onset": found["vad_onset"],
+        "vad_offset": found["vad_offset"],
     }
 
 
 def test_default_diarization_model_matches_cli():
-    assert stages.DIARIZE_MODEL == "pyannote/speaker-diarization-community-1"
+    assert stages.DIARIZE_MODEL == whisperx_cli_defaults()["diarize_model"]
 ```
-
-Значение `0.6000000000000001` не опечатка: `temperatures` строится через `numpy.arange(0, 1.0 + 1e-6, 0.2)`, и это ровно то, что даёт арифметика с плавающей точкой. Тест обязан сравнивать с тем, что реально получается, иначе он лжёт.
 
 - [ ] **Step 2: Запустить тест и убедиться, что он падает**
 
@@ -475,20 +579,21 @@ def diarize(audio, device: str, hf_token: str, batch_size: int, model_name: str 
 - [ ] **Step 4: Запустить тесты и убедиться, что они проходят**
 
 Run: `./.venv/bin/pytest tests/test_stages.py -v`
-Expected: 3 passed
+Expected: 7 passed
 
-- [ ] **Step 5: Проверить, что константы действительно совпадают с whisperx**
+- [ ] **Step 5: Посмотреть, что именно извлеклось из whisperx**
 
 Run:
 ```bash
 ./.venv/bin/python -c "
-import numpy as np
-from whisp import stages
-print(stages.ASR_OPTIONS['temperatures'])
-print(tuple(np.arange(0, 1.0 + 1e-6, 0.2)))
+import sys; sys.path.insert(0, 'tests')
+from test_stages import whisperx_cli_defaults
+d = whisperx_cli_defaults()
+for k in ('beam_size','temperature','temperature_increment_on_fallback','vad_offset','threads'):
+    print(k, '=', repr(d.get(k)))
 "
 ```
-Expected: обе строки идентичны.
+Expected: `beam_size = 5`, `temperature = 0`, `temperature_increment_on_fallback = 0.2`, `vad_offset = 0.363`, `threads = 0`.
 
 - [ ] **Step 6: Коммит**
 
@@ -774,7 +879,7 @@ Expected: 5 passed
 - [ ] **Step 5: Запустить весь набор**
 
 Run: `./.venv/bin/pytest -v`
-Expected: 17 passed
+Expected: 20 passed
 
 - [ ] **Step 6: Коммит**
 
@@ -1395,7 +1500,7 @@ Expected: 1 passed. Строки `whisp:` показывают примерно 
 - [ ] **Step 5: Прогнать весь набор тестов**
 
 Run: `./.venv/bin/pytest -v && bash tests/test_whisp_lib.sh`
-Expected: 21 passed, 1 skipped; шесть строк `ok` от bash-теста
+Expected: 24 passed, 1 skipped; шесть строк `ok` от bash-теста
 
 - [ ] **Step 6: Коммит**
 
