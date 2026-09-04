@@ -1,0 +1,33 @@
+# Local environment
+.venv/
+.env
+
+# Local editor / agent settings (may contain tokens)
+.claude/settings.local.json
+
+# Media files dropped into this folder for transcription
+*.mp3
+*.mp4
+*.m4a
+*.wav
+*.aac
+*.flac
+*.ogg
+*.wma
+*.mov
+*.mkv
+*.avi
+*.webm
+*.m4v
+*.flv
+
+# Transcripts and summaries produced by whisp — never commit these
+*.txt
+output/
+automation/whisp-automation.log
+
+# macOS / Python cruft
+.DS_Store
+__pycache__/
+*.pyc
+*.egg-info/

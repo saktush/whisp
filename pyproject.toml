@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "whisper-transcribe"
+version = "0.1.0"
+description = "Local WhisperX-based transcription with speaker diarization for whisp"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+authors = [{ name = "Sergey Blashkevich" }]
+keywords = ["whisper", "whisperx", "transcription", "diarization", "macos"]
+dependencies = [
+    "whisperx",
+]
+
+[project.urls]
+Homepage = "https://github.com/saktush/whisp"
+Repository = "https://github.com/saktush/whisp"
+Issues = "https://github.com/saktush/whisp/issues"
+
+# This project ships shell scripts, not an importable Python package; the
+# pyproject exists only to pin the venv's dependency set via `pip install -e .`.
+[tool.setuptools]
+py-modules = []
