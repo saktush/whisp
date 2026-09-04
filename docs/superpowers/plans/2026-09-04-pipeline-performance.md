@@ -488,6 +488,11 @@ output; the acceptance test is an md5 comparison.
 import numpy as np
 import whisperx
 from whisperx.audio import SAMPLE_RATE, load_audio
+# Not re-exported from the whisperx package root -- its __init__ lazily
+# exposes only align, assign_word_speakers, load_align_model, load_model,
+# load_audio, setup_logging and get_logger. whisperx's own CLI imports it
+# from this module too (whisperx/transcribe.py).
+from whisperx.diarize import DiarizationPipeline
 
 DIARIZE_MODEL = "pyannote/speaker-diarization-community-1"
 
@@ -562,7 +567,7 @@ def align_segments(segments, audio, language: str, device: str) -> dict:
 
 
 def diarize(audio, device: str, hf_token: str, batch_size: int, model_name: str = DIARIZE_MODEL):
-    pipeline = whisperx.DiarizationPipeline(
+    pipeline = DiarizationPipeline(
         model_name=model_name, token=hf_token, device=device
     )
     # Measured on M1 Pro / 16 GB: batch 64 gives RTF 0.067 against 0.082 at the
