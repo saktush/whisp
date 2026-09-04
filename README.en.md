@@ -111,8 +111,9 @@ whisp <file> [-sum] [--no-diarize]
   in Russian: topics, decisions, action items.
 - A system sound plays when the run finishes.
 
-The summary is deliberately a best-effort step: if it fails or exceeds its 5-minute
-timeout you get a warning, but **the transcript itself is never affected**.
+The summary is deliberately a best-effort step: if it fails or exceeds the
+`WHISP_SUMMARY_TIMEOUT` timeout you get a warning, but **the transcript itself is never
+affected**.
 
 Examples:
 
@@ -183,12 +184,15 @@ WHISP_LANG=en whisp interview.mp3
 
 | File | Purpose |
 |---|---|
-| `whisp.sh` | Main script: argument parsing, WhisperX run, summary, completion sound |
+| `whisp.sh` | Parses arguments, delegates to the Python driver, handles the summary and completion sound |
+| `whisp-lib.sh` | Shared bash helpers for `whisp.sh`: the summary generation timeout |
+| `whisp/` | Python pipeline driver: transcription and diarization run in parallel, device selection, timing |
 | `pyproject.toml` | Environment dependencies (`pip install -e .`) |
 | `automation/install-folder-action.sh` | Compiles and attaches the Folder Action |
 | `automation/uninstall-folder-action.sh` | Detaches the Folder Action |
 | `automation/whisp-folder-action.applescript` | The "items added to folder" handler |
 | `automation/process-new-file.sh` | Type filter, write-completion wait, locking, runs `whisp.sh` |
+| `tests/` | Tests: pytest suite for the `whisp/` package, bash test for `whisp-lib.sh` |
 | `.github/workflows/release.yml` | Publishes a release on a `v*` tag |
 
 ## Privacy
