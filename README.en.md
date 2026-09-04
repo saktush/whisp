@@ -102,7 +102,7 @@ source ~/.zshrc
 ### Manually
 
 ```bash
-whisp <file> [-sum]
+whisp <file> [-sum] [--no-diarize]
 ```
 
 - The transcript is written to `<file>.txt` **next to the source file**, not into the
@@ -120,6 +120,11 @@ Examples:
 whisp ~/Downloads/"Team call.m4a"          # transcript only
 whisp ~/Downloads/"Team call.m4a" -sum     # transcript + summary
 ```
+
+- `--no-diarize` turns off speaker labelling. It only makes sense for
+  recordings you know have a single voice — lectures, promo clips: it saves
+  around 12% of the runtime, but strips the transcript of its only source of
+  who-said-what.
 
 ### Automatically: transcribe on file drop
 
@@ -163,6 +168,12 @@ Environment variables (they can also go straight into `.env`):
 | `WHISP_LANG` | `ru` | Language code of the recording (`en`, `de`, …) |
 | `WHISP_MODEL` | `turbo` | Whisper model (`tiny`, `base`, `small`, `medium`, `large-v3`, `turbo`) |
 | `WHISP_COMPUTE_TYPE` | `int8` | CTranslate2 compute type (`int8`, `float32`) |
+| `WHISP_DEVICE` | `auto` | Device for diarization and alignment: `auto`, `mps`, `cpu` |
+| `WHISP_PARALLEL` | `1` | `0` runs diarization serially instead of alongside transcription |
+| `WHISP_SUMMARY_TIMEOUT` | `900` | Summary generation timeout, seconds |
+| `WHISP_BATCH_SIZE` | `8` | Transcription batch size |
+| `WHISP_DIARIZE_BATCH_SIZE` | `64` | Diarization batch size |
+| `WHISP_ASR_THREADS` | `0` | CTranslate2 threads; `0` keeps the whisperx default |
 
 ```bash
 WHISP_LANG=en whisp interview.mp3
@@ -193,9 +204,10 @@ WHISP_LANG=en whisp interview.mp3
 
 ## Limitations
 
-- **CPU-only on Apple Silicon.** The CTranslate2 engine has no Metal/GPU backend, so the
-  Mac's GPU won't help here. It is still noticeably faster than plain `openai-whisper`,
-  and adds word-level alignment and diarization on top.
+- **Transcription runs on the CPU.** CTranslate2 has no Metal backend.
+  Diarization and alignment do run on the GPU through MPS, and they run
+  alongside transcription, so on Apple Silicon transcription is the
+  bottleneck.
 - **The summary is always in Russian** — the prompt is fixed in `whisp.sh`; changing
   `WHISP_LANG` affects the transcript, not the summary language.
 - **Diarization requires accepting the terms** of the gated pyannote model (install
