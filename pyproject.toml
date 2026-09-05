@@ -21,7 +21,12 @@ Homepage = "https://github.com/saktush/whisp"
 Repository = "https://github.com/saktush/whisp"
 Issues = "https://github.com/saktush/whisp/issues"
 
-# This project ships shell scripts, not an importable Python package; the
-# pyproject exists only to pin the venv's dependency set via `pip install -e .`.
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
 [tool.setuptools]
-py-modules = []
+packages = ["whisp"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["integration: needs cached models and real audio; opt-in"]

@@ -102,7 +102,7 @@ source ~/.zshrc
 ### Manually
 
 ```bash
-whisp <file> [-sum]
+whisp <file> [-sum] [--no-diarize]
 ```
 
 - The transcript is written to `<file>.txt` **next to the source file**, not into the
@@ -111,8 +111,9 @@ whisp <file> [-sum]
   in Russian: topics, decisions, action items.
 - A system sound plays when the run finishes.
 
-The summary is deliberately a best-effort step: if it fails or exceeds its 5-minute
-timeout you get a warning, but **the transcript itself is never affected**.
+The summary is deliberately a best-effort step: if it fails or exceeds
+`WHISP_SUMMARY_TIMEOUT`, you get a warning, but **the transcript itself is never
+affected**.
 
 Examples:
 
@@ -120,6 +121,11 @@ Examples:
 whisp ~/Downloads/"Team call.m4a"          # transcript only
 whisp ~/Downloads/"Team call.m4a" -sum     # transcript + summary
 ```
+
+- `--no-diarize` turns off speaker labelling. It only makes sense for
+  recordings you know have a single voice — lectures, promo clips: it saves
+  around 12% of the runtime, but strips the transcript of its only source of
+  who-said-what.
 
 ### Automatically: transcribe on file drop
 
@@ -163,6 +169,12 @@ Environment variables (they can also go straight into `.env`):
 | `WHISP_LANG` | `ru` | Language code of the recording (`en`, `de`, …) |
 | `WHISP_MODEL` | `turbo` | Whisper model (`tiny`, `base`, `small`, `medium`, `large-v3`, `turbo`) |
 | `WHISP_COMPUTE_TYPE` | `int8` | CTranslate2 compute type (`int8`, `float32`) |
+| `WHISP_DEVICE` | `auto` | Device for diarization and alignment: `auto`, `mps`, `cpu` |
+| `WHISP_PARALLEL` | `1` | `0` runs diarization serially instead of alongside transcription |
+| `WHISP_SUMMARY_TIMEOUT` | `900` | Summary generation timeout, seconds |
+| `WHISP_BATCH_SIZE` | `8` | Transcription batch size |
+| `WHISP_DIARIZE_BATCH_SIZE` | `64` | Diarization batch size |
+| `WHISP_ASR_THREADS` | `0` | CTranslate2 threads; `0` keeps the whisperx default |
 
 ```bash
 WHISP_LANG=en whisp interview.mp3
@@ -172,12 +184,15 @@ WHISP_LANG=en whisp interview.mp3
 
 | File | Purpose |
 |---|---|
-| `whisp.sh` | Main script: argument parsing, WhisperX run, summary, completion sound |
+| `whisp.sh` | Parses arguments, delegates to the Python driver, handles the summary and completion sound |
+| `whisp-lib.sh` | Shared bash helpers for `whisp.sh`: the summary generation timeout |
+| `whisp/` | Python pipeline driver: transcription and diarization run in parallel, device selection, timing |
 | `pyproject.toml` | Environment dependencies (`pip install -e .`) |
 | `automation/install-folder-action.sh` | Compiles and attaches the Folder Action |
 | `automation/uninstall-folder-action.sh` | Detaches the Folder Action |
 | `automation/whisp-folder-action.applescript` | The "items added to folder" handler |
 | `automation/process-new-file.sh` | Type filter, write-completion wait, locking, runs `whisp.sh` |
+| `tests/` | Tests: pytest suite for the `whisp/` package, bash test for `whisp-lib.sh` |
 | `.github/workflows/release.yml` | Publishes a release on a `v*` tag |
 
 ## Privacy
@@ -193,9 +208,10 @@ WHISP_LANG=en whisp interview.mp3
 
 ## Limitations
 
-- **CPU-only on Apple Silicon.** The CTranslate2 engine has no Metal/GPU backend, so the
-  Mac's GPU won't help here. It is still noticeably faster than plain `openai-whisper`,
-  and adds word-level alignment and diarization on top.
+- **Transcription runs on the CPU.** CTranslate2 has no Metal backend.
+  Diarization runs on the GPU through MPS alongside transcription; alignment
+  also runs on the GPU, but sequentially after transcription finishes, so on
+  Apple Silicon transcription is the bottleneck.
 - **The summary is always in Russian** — the prompt is fixed in `whisp.sh`; changing
   `WHISP_LANG` affects the transcript, not the summary language.
 - **Diarization requires accepting the terms** of the gated pyannote model (install
