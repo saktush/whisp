@@ -111,8 +111,8 @@ whisp <file> [-sum] [--no-diarize]
   in Russian: topics, decisions, action items.
 - A system sound plays when the run finishes.
 
-The summary is deliberately a best-effort step: if it fails or exceeds the
-`WHISP_SUMMARY_TIMEOUT` timeout you get a warning, but **the transcript itself is never
+The summary is deliberately a best-effort step: if it fails or exceeds
+`WHISP_SUMMARY_TIMEOUT`, you get a warning, but **the transcript itself is never
 affected**.
 
 Examples:
@@ -209,9 +209,9 @@ WHISP_LANG=en whisp interview.mp3
 ## Limitations
 
 - **Transcription runs on the CPU.** CTranslate2 has no Metal backend.
-  Diarization and alignment do run on the GPU through MPS, and they run
-  alongside transcription, so on Apple Silicon transcription is the
-  bottleneck.
+  Diarization runs on the GPU through MPS alongside transcription; alignment
+  also runs on the GPU, but sequentially after transcription finishes, so on
+  Apple Silicon transcription is the bottleneck.
 - **The summary is always in Russian** — the prompt is fixed in `whisp.sh`; changing
   `WHISP_LANG` affects the transcript, not the summary language.
 - **Diarization requires accepting the terms** of the gated pyannote model (install
