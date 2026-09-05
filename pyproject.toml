@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "whisper-transcribe"
-version = "0.2.0"
+version = "0.3.0"
 description = "Local WhisperX-based transcription with speaker diarization for whisp"
 readme = "README.md"
 license = "MIT"
@@ -14,6 +14,16 @@ authors = [{ name = "Sergey Blashkevich" }]
 keywords = ["whisper", "whisperx", "transcription", "diarization", "macos"]
 dependencies = [
     "whisperx",
+    # Local summarization. Pinned below 0.30 deliberately: mlx-lm >= 0.30
+    # requires transformers>=5.0.0, and whisperx/pyannote declare transformers
+    # with no upper bound, so an unpinned install silently drags the whole ASR
+    # stack across a major transformers boundary. 0.29.1 is the last release
+    # that accepts transformers 4.x.
+    #
+    # The platform marker keeps `pip install -e .` working off Apple Silicon,
+    # where mlx has no Metal backend; whisp.summary_backends then reports a
+    # missing-mlx message instead of failing at import time.
+    "mlx-lm>=0.29,<0.30; sys_platform == 'darwin' and platform_machine == 'arm64'",
 ]
 
 [project.urls]
