@@ -143,3 +143,60 @@ def test_stage_log_receives_map_and_reduce_lines():
     assert "summary-map" in emitted
     assert "summary-reduce" in emitted
     assert "RTF" not in emitted, "no audio duration here, so no RTF column"
+
+
+# --- generation budget ----------------------------------------------------
+
+def test_map_calls_get_a_smaller_budget_than_the_final_summary():
+    # Map notes are intermediate, and the map phase runs once per chunk, so it
+    # dominates wall time. Measured: 4 chunks allowed 2048 output tokens each
+    # cost more than the reduce pass and every prefill combined.
+    budgets = []
+
+    def generate(system, user, max_tokens):
+        budgets.append(max_tokens)
+        return FINAL
+
+    backend = summarize.Backend(
+        generate=generate, count_tokens=lambda s: len(s.split()), name="fake"
+    )
+    text = "".join(f"line {i} with several words here\n" for i in range(30))
+    summarize.summarize(
+        text, backend, language="ru", chunk_tokens=12, max_tokens=2048
+    )
+
+    *map_budgets, reduce_budget = budgets
+    assert map_budgets, "expected several map calls"
+    assert reduce_budget == 2048
+    assert all(b < reduce_budget for b in map_budgets)
+
+
+def test_a_small_max_tokens_is_never_raised_for_the_map_phase():
+    budgets = []
+
+    def generate(system, user, max_tokens):
+        budgets.append(max_tokens)
+        return FINAL
+
+    backend = summarize.Backend(
+        generate=generate, count_tokens=lambda s: len(s.split()), name="fake"
+    )
+    text = "".join(f"line {i} with several words here\n" for i in range(30))
+    summarize.summarize(text, backend, language="ru", chunk_tokens=12, max_tokens=256)
+    assert all(b <= 256 for b in budgets)
+
+
+def test_single_pass_uses_the_full_budget():
+    budgets = []
+
+    def generate(system, user, max_tokens):
+        budgets.append(max_tokens)
+        return FINAL
+
+    backend = summarize.Backend(
+        generate=generate, count_tokens=lambda s: len(s.split()), name="fake"
+    )
+    summarize.summarize(
+        "[SPEAKER_00]: коротко\n", backend, language="ru", chunk_tokens=9999, max_tokens=2048
+    )
+    assert budgets == [2048]

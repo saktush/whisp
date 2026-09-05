@@ -136,12 +136,17 @@ def summarize(
         if log is not None:
             log.record("summary-single", monotonic() - started_call)
     else:
+        # The map phase runs once per chunk, so its output budget -- not the
+        # reduce pass, and not prefill -- dominates wall time on a long
+        # transcript. The notes are intermediate and feed a second pass, so
+        # they are capped well below the final summary's budget.
+        map_max_tokens = min(max_tokens, MAP_TOKEN_CAP)
         map_prompt = prompts.select(language, "map")
         notes = []
         for index, chunk in enumerate(chunks, 1):
             _check_deadline(started, deadline, monotonic, f"chunk {index}/{len(chunks)}")
             started_call = monotonic()
-            notes.append(backend.generate(map_prompt, chunk, max_tokens).strip())
+            notes.append(backend.generate(map_prompt, chunk, map_max_tokens).strip())
             if log is not None:
                 log.record(f"summary-map {index}/{len(chunks)}", monotonic() - started_call)
 
@@ -170,6 +175,8 @@ DEFAULT_MLX_MODEL = "mlx-community/Qwen3-4B-Instruct-2507-4bit"
 DEFAULT_CLAUDE_MODEL = "sonnet"
 DEFAULT_CHUNK_TOKENS = 6000
 DEFAULT_MAX_TOKENS = 2048
+# Ceiling for a single chunk's intermediate notes; see summarize().
+MAP_TOKEN_CAP = 768
 # Raised from the 900 that sized a ~60s network call. Model load is timed
 # separately and deliberately excluded from this budget.
 DEFAULT_TIMEOUT = 1800.0
