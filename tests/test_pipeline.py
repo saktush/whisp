@@ -92,6 +92,36 @@ def test_diarization_failure_does_not_lose_the_transcript():
     assert "assign" not in stages.calls
 
 
+def test_alignment_failure_does_not_lose_the_transcript():
+    """F1: an align/assign exception must not discard a finished ASR result.
+
+    Reproduces the reviewer's repro case: align() raises after transcription
+    has already produced a complete result. Before the fix this propagated
+    out of run() and stages.write was never called, discarding a finished
+    transcript.
+    """
+
+    def failing_align(*args, **kwargs):
+        raise RuntimeError("MPS backend out of memory")
+
+    stages = make_stages(align=failing_align)
+    run(stages)
+    assert "write" in stages.calls
+    assert "assign" not in stages.calls
+
+
+def test_assign_failure_does_not_lose_the_transcript():
+    """Same guarantee when assign (not align) is the one that raises."""
+
+    def failing_assign(*args, **kwargs):
+        raise KeyError("speaker")
+
+    stages = make_stages(assign=failing_assign)
+    run(stages)
+    assert "write" in stages.calls
+    assert "align" in stages.calls
+
+
 def test_diarize_timeout_does_not_block_the_transcript():
     """A hung diarize() must not hold up the transcript forever.
 
@@ -122,3 +152,43 @@ def test_returns_transcript_path():
     stages = make_stages()
     result = run(stages, audio_path="/tmp/meeting.webm", output_dir="/out")
     assert str(result) == "/out/meeting.txt"
+
+
+def test_speaker_labels_survive_the_align_then_assign_order():
+    """Pins pipeline.run's stage order: align must run before assign.
+
+    whisperx's real align_segments (whisperx/alignment.py) rebuilds every
+    output segment as a fresh {text, start, end, words} dict, which drops
+    any 'speaker' key an earlier assign_word_speakers call had set. If the
+    two calls in pipeline.run were ever swapped, align would silently erase
+    every speaker label assign had just added -- the run would still exit 0
+    and write a plausible-looking transcript, just with no speaker names in
+    it. The fakes below mirror that discarding behaviour (fake_align always
+    returns segments without 'speaker'; fake_assign is what adds it) so this
+    test fails if the order regresses, instead of only checking that both
+    stages ran somewhere.
+    """
+    written = {}
+
+    def fake_align(segments, *args, **kwargs):
+        return {
+            "segments": [
+                {"text": s["text"], "start": 0.0, "end": 1.0, "words": []}
+                for s in segments
+            ]
+        }
+
+    def fake_assign(diarize_df, result):
+        for segment in result["segments"]:
+            segment["speaker"] = "SPEAKER_00"
+        return result
+
+    def fake_write(result, audio_path, output_dir):
+        written["result"] = result
+
+    stages = make_stages(align=fake_align, assign=fake_assign, write=fake_write)
+    run(stages)
+
+    segments = written["result"]["segments"]
+    assert segments, "no segments reached write()"
+    assert all("speaker" in segment for segment in segments)

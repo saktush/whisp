@@ -134,9 +134,16 @@ def run(
         timed_out = worker.is_alive()
 
     if diarize_enabled and "df" in diarization:
-        with log.stage("align"):
-            result = stages.align(result["segments"], audio, language, device)
-        result = stages.assign(diarization["df"], result)
+        try:
+            with log.stage("align"):
+                result = stages.align(result["segments"], audio, language, device)
+            result = stages.assign(diarization["df"], result)
+        except Exception as exc:  # transcript matters more than speaker labels
+            print(
+                f"whisp: alignment failed ({type(exc).__name__}: {exc}); "
+                "writing the transcript without speaker labels",
+                flush=True,
+            )
     elif diarize_enabled and timed_out:
         print(
             f"whisp: diarization timed out after {diarize_timeout:.0f}s; "
@@ -144,8 +151,9 @@ def run(
             flush=True,
         )
     elif diarize_enabled:
+        exc = diarization.get("error")
         print(
-            f"whisp: diarization failed ({diarization.get('error')}); "
+            f"whisp: diarization failed ({type(exc).__name__}: {exc}); "
             "writing the transcript without speaker labels",
             flush=True,
         )
