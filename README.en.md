@@ -44,10 +44,11 @@ The output is a `<recording-name>.txt` file next to the source:
 | `ffmpeg` | Audio and video decoding | yes |
 | Python 3.11+ | Virtual environment with WhisperX | yes |
 | A [Hugging Face](https://huggingface.co) account | Token for the diarization model | yes |
-| [Claude CLI](https://claude.com/claude-code) | Only for the `-sum` flag | no |
+| [Claude CLI](https://claude.com/claude-code) | Only for `WHISP_SUMMARY_BACKEND=claude` | no |
 
-Budget roughly **5 GB** of disk space: PyTorch accounts for most of it, and the Whisper
-and diarization models are downloaded on first run.
+Budget roughly **7 GB** of disk space: PyTorch accounts for most of it, and the Whisper
+and diarization models are downloaded on first run. A further ~2.1 GB goes to the
+language model used for summaries, downloaded the first time you pass `-sum`.
 
 ## Installation
 
@@ -107,8 +108,9 @@ whisp <file> [-sum] [--no-diarize]
 
 - The transcript is written to `<file>.txt` **next to the source file**, not into the
   project folder.
-- With `-sum`, an additional `<file>-summary.txt` is produced with a structured summary
-  in Russian: topics, decisions, action items.
+- With `-sum`, an additional `<file>-summary.txt` is produced with a structured summary:
+  topics, decisions, action items. The summary is produced by a **local** model through
+  MLX, in the language given by `WHISP_LANG`.
 - A system sound plays when the run finishes.
 
 The summary is deliberately a best-effort step: if it fails or exceeds
@@ -171,7 +173,12 @@ Environment variables (they can also go straight into `.env`):
 | `WHISP_COMPUTE_TYPE` | `int8` | CTranslate2 compute type (`int8`, `float32`) |
 | `WHISP_DEVICE` | `auto` | Device for diarization and alignment: `auto`, `mps`, `cpu` |
 | `WHISP_PARALLEL` | `1` | `0` runs diarization serially instead of alongside transcription |
-| `WHISP_SUMMARY_TIMEOUT` | `900` | Summary generation timeout, seconds |
+| `WHISP_SUMMARY_BACKEND` | `mlx` | Summary engine: `mlx` (local) or `claude` |
+| `WHISP_SUMMARY_MODEL` | `mlx-community/Qwen3-4B-Instruct-2507-4bit` | Summary model; `sonnet` for the `claude` backend |
+| `WHISP_SUMMARY_LANG` | value of `WHISP_LANG` | Summary language: `ru`, or English for anything else |
+| `WHISP_SUMMARY_CHUNK_TOKENS` | `6000` | Fragment size; longer transcripts go through map-reduce |
+| `WHISP_SUMMARY_MAX_TOKENS` | `2048` | Upper bound on summary length, in tokens |
+| `WHISP_SUMMARY_TIMEOUT` | `1800` | Summary generation timeout, seconds (model loading excluded) |
 | `WHISP_BATCH_SIZE` | `8` | Transcription batch size |
 | `WHISP_DIARIZE_BATCH_SIZE` | `64` | Diarization batch size |
 | `WHISP_ASR_THREADS` | `0` | CTranslate2 threads; `0` keeps the whisperx default |
@@ -187,6 +194,9 @@ WHISP_LANG=en whisp interview.mp3
 | `whisp.sh` | Parses arguments, delegates to the Python driver, handles the summary and completion sound |
 | `whisp-lib.sh` | Shared bash helpers for `whisp.sh`: the summary generation timeout |
 | `whisp/` | Python pipeline driver: transcription and diarization run in parallel, device selection, timing |
+| `whisp/summarize.py` | Summarization: chunking, map-reduce, CLI (`python -m whisp.summarize`) |
+| `whisp/summary_backends.py` | Summary engines: local MLX and `claude` |
+| `whisp/prompts.py` | Summary prompts for Russian and English |
 | `pyproject.toml` | Environment dependencies (`pip install -e .`) |
 | `automation/install-folder-action.sh` | Compiles and attaches the Folder Action |
 | `automation/uninstall-folder-action.sh` | Detaches the Folder Action |
@@ -197,12 +207,12 @@ WHISP_LANG=en whisp interview.mp3
 
 ## Privacy
 
-- **Transcription and diarization run locally.** Your audio and video never leave the machine.
-- **The `-sum` flag is the exception.** It sends the finished transcript text to the
-  Anthropic API via the `claude` CLI. If the meeting content must not leave your machine,
-  don't use `-sum` — transcription is unaffected either way.
+- **The whole pipeline runs locally**, summaries included: by default they are produced
+  by a local model through MLX. Your audio, video and transcript never leave the machine.
+- **The one exception is opting in with `WHISP_SUMMARY_BACKEND=claude`.** Only then is the
+  transcript text sent to the Anthropic API via the `claude` CLI. It does not happen by default.
 - Network access is needed on first run to download models from Hugging Face; after that
-  transcription works offline.
+  everything, summaries included, works offline.
 - `.gitignore` deliberately excludes **all** media files and `*.txt`, so recordings and
   transcripts can't be committed by accident.
 
@@ -212,8 +222,11 @@ WHISP_LANG=en whisp interview.mp3
   Diarization runs on the GPU through MPS alongside transcription; alignment
   also runs on the GPU, but sequentially after transcription finishes, so on
   Apple Silicon transcription is the bottleneck.
-- **The summary is always in Russian** — the prompt is fixed in `whisp.sh`; changing
-  `WHISP_LANG` affects the transcript, not the summary language.
+- **Summaries come in Russian and English.** The language follows `WHISP_LANG` and can be
+  overridden with `WHISP_SUMMARY_LANG`; anything other than Russian uses the English template.
+- **The local model is weaker than the hosted one.** Summaries are produced by a compact 4B
+  model. For maximum quality use `WHISP_SUMMARY_BACKEND=claude` — at the cost of sending the
+  transcript to the Anthropic API.
 - **Diarization requires accepting the terms** of the gated pyannote model (install
   step 4). Without it WhisperX fails with a model access error.
 - The project is macOS-bound: Folder Actions, `osascript` notifications, `afplay` and `shlock`.
