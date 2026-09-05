@@ -7,51 +7,13 @@ nothing would say so. So the expected values are read out of the installed
 whisperx instead of being written down here.
 """
 
-import ast
-import pathlib
 from unittest.mock import MagicMock
 
 import numpy as np
 import whisperx
 
+from tests.whisperx_source import whisperx_cli_defaults
 from whisp import stages
-
-
-def whisperx_cli_defaults() -> dict:
-    """argparse defaults declared by the installed whisperx CLI.
-
-    Parsed statically: whisperx builds its parser inside cli(), which also
-    runs the whole pipeline, so it cannot be imported and inspected.
-    """
-    source = pathlib.Path(whisperx.__file__).with_name("__main__.py").read_text()
-    defaults: dict = {}
-    for node in ast.walk(ast.parse(source)):
-        if not (
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and node.func.attr == "add_argument"
-            and node.args
-        ):
-            continue
-        flag = next(
-            (
-                arg.value
-                for arg in node.args
-                if isinstance(arg, ast.Constant)
-                and isinstance(arg.value, str)
-                and arg.value.startswith("--")
-            ),
-            None,
-        )
-        if flag is None:
-            continue
-        for keyword in node.keywords:
-            if keyword.arg == "default":
-                try:
-                    defaults[flag[2:]] = ast.literal_eval(keyword.value)
-                except ValueError:
-                    pass  # e.g. --device, whose default is a torch call
-    return defaults
 
 
 def test_extraction_finds_the_arguments_we_depend_on():
