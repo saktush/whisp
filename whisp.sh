@@ -68,7 +68,9 @@ OUTPUT_DIR="$(cd "$(dirname "$FILE")" && pwd)"
 MODEL="${WHISP_MODEL:-turbo}"
 LANG_CODE="${WHISP_LANG:-ru}"
 COMPUTE_TYPE="${WHISP_COMPUTE_TYPE:-int8}"
-SUMMARY_TIMEOUT="${WHISP_SUMMARY_TIMEOUT:-900}"
+# The WHISP_SUMMARY_* knobs (backend, model, chunk size, timeout) are read by
+# the summarizer straight from the environment, the same way WHISP_DEVICE and
+# WHISP_BATCH_SIZE are -- .env is sourced with `set -a` above, so they reach it.
 
 DIARIZE_ARGS=()
 if [ "$DIARIZE" -eq 0 ]; then
@@ -98,36 +100,35 @@ SUMMARY_FILE="$OUTPUT_DIR/$BASENAME-summary.txt"
 if [ "$SUMMARIZE" -eq 1 ]; then
     echo "Generating summary..."
 
-    SUMMARY_SYSTEM_PROMPT="You are a transcript summarizer for Russian-language business call/meeting recordings. You will receive a diarized transcript on stdin, with lines like [SPEAKER_00]: text. Respond ONLY with a structured summary in Russian, using exactly this format:
-
-## Основные темы
-(bullet list of key topics discussed)
-
-## Решения
-(bullet list of decisions made; write 'Нет' if none)
-
-## Задачи
-(bullet list of action items, with owner/speaker if identifiable; write 'Нет' if none)
-
-Do not include any preamble, disclaimers, meta-commentary about the transcript format, or text outside this structure. Do not use any tools. Output plain text only, no markdown code fences."
-
+    # Summarization runs as its own process, started only after the
+    # transcription driver above has exited. torch-MPS and MLX each keep an
+    # independent caching allocator over the same unified memory with no
+    # cross-pressure signalling, so loading a language model beside a live
+    # torch runtime is an out-of-memory or a swap storm on a 16 GB machine.
+    #
+    # The summarizer owns its own deadline (WHISP_SUMMARY_TIMEOUT) and writes
+    # its progress to the inherited stdout, so a local run that takes minutes
+    # still reports per-chunk stage lines into the automation log instead of
+    # going silent. That is why this does not go through run_with_timeout,
+    # which buffers both streams into a file shown only on failure.
     SUMMARY_TMP="$(mktemp)"
-    SUMMARY_FLAG="$(mktemp)"
+    trap 'rm -f "$SUMMARY_TMP"' EXIT
 
-    if run_with_timeout "$SUMMARY_TIMEOUT" "$SUMMARY_TMP" "$TRANSCRIPT_FILE" "$SUMMARY_FLAG" \
-            claude -p --system-prompt "$SUMMARY_SYSTEM_PROMPT" --model sonnet; then
-        mv "$SUMMARY_TMP" "$SUMMARY_FILE"
-        echo "Summary saved to $SUMMARY_FILE"
-    else
-        if [ -s "$SUMMARY_FLAG" ]; then
-            echo "Warning: summary generation timed out after ${SUMMARY_TIMEOUT}s; the transcript itself is unaffected and is saved at $TRANSCRIPT_FILE." >&2
+    if PYTHONPATH="$SCRIPT_DIR" "$SCRIPT_DIR/.venv/bin/python" -m whisp.summarize \
+            "$TRANSCRIPT_FILE" \
+            --output "$SUMMARY_TMP" \
+            --language "$LANG_CODE"; then
+        # Guard the move: a zero-byte result must never replace a good summary
+        # from an earlier run.
+        if [ -s "$SUMMARY_TMP" ]; then
+            mv "$SUMMARY_TMP" "$SUMMARY_FILE"
+            echo "Summary saved to $SUMMARY_FILE"
         else
-            echo "Warning: summary generation failed; the transcript itself is unaffected and is saved at $TRANSCRIPT_FILE. The command's own output follows." >&2
+            echo "Warning: the summarizer exited cleanly but wrote nothing; the transcript itself is unaffected and is saved at $TRANSCRIPT_FILE." >&2
         fi
-        cat "$SUMMARY_TMP" >&2 || true
-        rm -f "$SUMMARY_TMP"
+    else
+        echo "Warning: summary generation failed; the transcript itself is unaffected and is saved at $TRANSCRIPT_FILE." >&2
     fi
-    rm -f "$SUMMARY_FLAG"
 fi
 
 # Audible completion signal (macOS system sound). Silently ignored if
