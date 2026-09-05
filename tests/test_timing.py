@@ -1,6 +1,14 @@
 import io
+import sys
 
 from whisp import timing
+
+
+def test_default_stream_is_stdout():
+    """whisperx's own verbose transcript also goes to stdout; sharing that
+    stream is what keeps `whisp:` lines from landing mid-line inside it when
+    both are redirected into one log file (see the module docstring)."""
+    assert timing.StageLog(audio_seconds=1.0).stream is sys.stdout
 
 
 def test_record_formats_line_with_rtf():
