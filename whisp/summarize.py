@@ -25,6 +25,18 @@ from typing import Callable
 from whisp import prompts
 from whisp.timing import StageLog
 
+# Chosen by measurement on this machine; see
+# docs/superpowers/specs/2026-09-05-local-summarization-design.md.
+DEFAULT_MLX_MODEL = "mlx-community/Qwen3-4B-Instruct-2507-4bit"
+DEFAULT_CLAUDE_MODEL = "sonnet"
+DEFAULT_CHUNK_TOKENS = 6000
+DEFAULT_MAX_TOKENS = 2048
+# Ceiling for a single chunk's intermediate notes; see summarize().
+MAP_TOKEN_CAP = 768
+# Raised from the 900 that sized a ~60s network call. Model load is timed
+# separately and deliberately excluded from this budget.
+DEFAULT_TIMEOUT = 1800.0
+
 
 def chunk_lines(
     text: str, max_tokens: int, count_tokens: Callable[[str], int]
@@ -168,18 +180,6 @@ def summarize(
         )
     return summary
 
-
-# Chosen by measurement on this machine; see
-# docs/superpowers/specs/2026-09-05-local-summarization-design.md.
-DEFAULT_MLX_MODEL = "mlx-community/Qwen3-4B-Instruct-2507-4bit"
-DEFAULT_CLAUDE_MODEL = "sonnet"
-DEFAULT_CHUNK_TOKENS = 6000
-DEFAULT_MAX_TOKENS = 2048
-# Ceiling for a single chunk's intermediate notes; see summarize().
-MAP_TOKEN_CAP = 768
-# Raised from the 900 that sized a ~60s network call. Model load is timed
-# separately and deliberately excluded from this budget.
-DEFAULT_TIMEOUT = 1800.0
 
 
 def parse_args(argv: list[str], env: dict | None = None) -> argparse.Namespace:
