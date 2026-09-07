@@ -85,15 +85,19 @@ top_k 20, seed 0.
 потери проверок Tier-1. Фактическая разбивка боевого прогона:
 
 ```
-whisp: summary-load 4.6s          (веса из кеша; первый раз — 136 с)
-whisp: summary-map 1/5 48.0s
-whisp: summary-map 2/5 48.1s
-whisp: summary-map 3/5 47.8s
-whisp: summary-map 4/5 48.0s
-whisp: summary-map 5/5 17.5s
-whisp: summary-reduce 36.3s
-whisp: TOTAL 245.7s
+whisp: summary-load 8.5s          (веса из кеша; первый раз — 136 с)
+whisp: summary-map 1/5 51.1s
+whisp: summary-map 2/5 49.3s
+whisp: summary-map 3/5 49.1s
+whisp: summary-map 4/5 49.4s
+whisp: summary-map 5/5 17.9s
+whisp: summary-reduce 54.8s
+whisp: TOTAL 271.7s
 ```
+
+Финальная приёмка на этом же файле после правок промпта: 271.7 с,
+4 309 символов вывода против 2 402 до них (+80 % содержания),
+44 из 44 строк — пункты списка, все проверки Tier-1 пройдены.
 
 Для сравнения: транскрибация часовой записи занимает 18 м 42 с, так что
 саммари добавляет к полному прогону около +22 %. Таймаут 1800 с оставляет
