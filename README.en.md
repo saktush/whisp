@@ -133,18 +133,24 @@ whisp ~/Downloads/"Team call.m4a" -sum     # transcript + summary
 
 ### Automatically: transcribe on file drop
 
-A macOS Folder Action watches the project folder and transcribes (and summarizes) any
+A macOS Folder Action watches a folder you name and transcribes (and summarizes) any
 audio or video file that lands in it.
 
-Install:
+Install -- the folder is an argument:
 
 ```bash
-./automation/install-folder-action.sh
+./automation/install-folder-action.sh ~/Downloads/inbox
 ```
+
+With no argument it watches the project folder. A dedicated inbox is usually better:
+recordings and transcripts then stay out of the project's own files.
+
+You can attach several folders. They share one compiled script, because the handler
+takes the folder from the event itself.
 
 macOS will ask once for permission to control System Events — grant it.
 
-After that, just drop a file into `~/whisp`:
+After that, just drop a file into the watched folder:
 
 - unrelated file types are ignored;
 - the script waits until the file has finished being written, so a partially copied
@@ -154,11 +160,15 @@ After that, just drop a file into `~/whisp`:
 - a system notification appears when the run finishes;
 - logs go to `automation/whisp-automation.log`.
 
-Remove:
+Remove -- the same folder as an argument:
 
 ```bash
-./automation/uninstall-folder-action.sh
+./automation/uninstall-folder-action.sh ~/Downloads/inbox
 ```
+
+Only the whisp script is detached. If other Folder Action scripts are attached to that
+folder, the action itself is kept; the shared compiled script is deleted only once the
+last watched folder stops using it. Folder Actions are never disabled globally.
 
 If you edit `automation/whisp-folder-action.applescript`, re-run the install script to
 recompile and reinstall the Folder Action.
@@ -217,8 +227,8 @@ WHISP_SUMMARY_PROMPT=~/whisp-prompts whisp meeting.m4a -sum
 | `whisp/summary_backends.py` | Summary engines: local MLX and `claude` |
 | `whisp/prompts.py` | Summary prompts for Russian and English, plus custom-prompt loading |
 | `pyproject.toml` | Environment dependencies (`pip install -e .`) |
-| `automation/install-folder-action.sh` | Compiles and attaches the Folder Action |
-| `automation/uninstall-folder-action.sh` | Detaches the Folder Action |
+| `automation/install-folder-action.sh` | Compiles and attaches the Folder Action to a folder (argument) |
+| `automation/uninstall-folder-action.sh` | Detaches the Folder Action from a folder (argument) |
 | `automation/whisp-folder-action.applescript` | The "items added to folder" handler |
 | `automation/process-new-file.sh` | Type filter, write-completion wait, locking, runs `whisp.sh` |
 | `tests/` | Tests: pytest suite for the `whisp/` package, bash test for `whisp-lib.sh` |

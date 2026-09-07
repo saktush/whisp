@@ -1,5 +1,7 @@
--- Folder Action attached to the whisp repo folder: fires whenever items are added to
--- it. Forwards each added item to process-new-file.sh, one at a time, in
+-- Folder Action attached to a watched folder: fires whenever items are added to
+-- it. The handler takes the folder from the event, so one compiled copy of this
+-- script can serve every folder you attach it to.
+-- Forwards each added item to process-new-file.sh, one at a time, in
 -- the order Finder reports them. That script filters for audio/video types,
 -- waits for the file to finish being written, and uses a lock so at most one
 -- transcription ever runs at once -- even if this handler fires again for a

@@ -132,18 +132,24 @@ whisp ~/Downloads/"Созвон с командой.m4a" -sum     # транск
 
 ### Автоматически: транскрибация при добавлении файла
 
-macOS Folder Action следит за папкой проекта и сам транскрибирует (и суммирует)
+macOS Folder Action следит за указанной папкой и сам транскрибирует (и суммирует)
 любой аудио- или видеофайл, который туда попал.
 
-Установка:
+Установка — папка передаётся аргументом:
 
 ```bash
-./automation/install-folder-action.sh
+./automation/install-folder-action.sh ~/Downloads/inbox
 ```
+
+Без аргумента слежение вешается на папку проекта. Отдельная папка-инбокс обычно
+удобнее: записи и транскрипты не смешиваются с исходниками проекта.
+
+Папок можно подключить несколько — скомпилированный скрипт у них общий, потому что
+папку он берёт из самого события.
 
 macOS один раз спросит разрешение на управление System Events — его нужно выдать.
 
-Дальше достаточно перетащить файл в папку `~/whisp`:
+Дальше достаточно перетащить файл в отслеживаемую папку:
 
 - посторонние типы файлов игнорируются;
 - скрипт ждёт, пока файл допишется до конца, — недокачанный файл в обработку не уйдёт;
@@ -152,11 +158,15 @@ macOS один раз спросит разрешение на управлен�
 - по завершении приходит системное уведомление;
 - лог пишется в `automation/whisp-automation.log`.
 
-Отключить:
+Отключить — та же папка аргументом:
 
 ```bash
-./automation/uninstall-folder-action.sh
+./automation/uninstall-folder-action.sh ~/Downloads/inbox
 ```
+
+Снимается только скрипт whisp. Если на этой папке висят чужие Folder Action-скрипты,
+сама привязка сохраняется; общий скомпилированный скрипт удаляется только тогда,
+когда его перестаёт использовать последняя папка. Глобально Folder Actions не выключаются.
 
 Если вы правили `automation/whisp-folder-action.applescript`, перезапустите скрипт
 установки — он перекомпилирует и переустановит Folder Action.
@@ -215,8 +225,8 @@ WHISP_SUMMARY_PROMPT=~/whisp-prompts whisp meeting.m4a -sum
 | `whisp/summary_backends.py` | Движки саммари: локальный MLX и `claude` |
 | `whisp/prompts.py` | Промпты саммари для русского и английского, загрузка своих |
 | `pyproject.toml` | Зависимости окружения (`pip install -e .`) |
-| `automation/install-folder-action.sh` | Компилирует и подключает Folder Action |
-| `automation/uninstall-folder-action.sh` | Отключает Folder Action |
+| `automation/install-folder-action.sh` | Компилирует и подключает Folder Action к папке (аргумент) |
+| `automation/uninstall-folder-action.sh` | Отключает Folder Action у папки (аргумент) |
 | `automation/whisp-folder-action.applescript` | Обработчик «в папку добавлены файлы» |
 | `automation/process-new-file.sh` | Фильтр по типу, ожидание дозаписи, блокировка, запуск `whisp.sh` |
 | `tests/` | Тесты: pytest для пакета `whisp/`, bash-тест для `whisp-lib.sh` |
