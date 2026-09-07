@@ -67,3 +67,24 @@ def test_no_template_carries_the_claude_cli_tool_guard(language, kind):
     # "Do not use any tools" was a Claude-Code-specific guard; it is noise for
     # a plain local model.
     assert "use any tools" not in prompts.select(language, kind).lower()
+
+
+@pytest.mark.parametrize("kind", ["single", "reduce"])
+@pytest.mark.parametrize("language", ["ru", "en"])
+def test_final_templates_pin_the_bullet_syntax(language, kind):
+    # Without this the model sometimes returns "Основные темы" as one
+    # comma-separated run-on paragraph instead of a list.
+    text = prompts.select(language, kind)
+    assert '- ' in text
+    marker = "отдельной строкой" if language == "ru" else "its own line"
+    assert marker in text
+
+
+@pytest.mark.parametrize("kind", ["single", "reduce"])
+@pytest.mark.parametrize("language", ["ru", "en"])
+def test_final_templates_forbid_overlapping_sections(language, kind):
+    # Measured: without this the model listed the same five items under both
+    # Decisions and Action items.
+    text = prompts.select(language, kind)
+    marker = "не пересекаются" if language == "ru" else "do not overlap"
+    assert marker in text

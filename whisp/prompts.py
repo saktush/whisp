@@ -23,12 +23,14 @@ _RU_RULES = """Правила отбора:
 - РЕШЕНИЕ — это выбор, который участники сделали В ХОДЕ разговора («договорились», «принято», «делаем так», «отказались от»). Описание того, как работает продукт, регламент или система, решением НЕ является.
 - ЗАДАЧА — это конкретное действие, которое человек взял на себя ПОСЛЕ разговора, с намерением его выполнить. Шаг демонстрации, возможность продукта или обязанность абстрактной роли задачей НЕ является.
 - Если это демонстрация, презентация или обучение и участники ни о чём не договаривались — в разделах «Решения» и «Задачи» пиши ровно «Нет». Это нормальный и ожидаемый ответ, не пытайся заполнить разделы любой ценой.
+- Разделы не пересекаются: один и тот же пункт не должен стоять и в «Решениях», и в «Задачах». Решение — о чём договорились; задача — что кто-то будет делать дальше.
 - Не выводи ничего, чего нет в расшифровке."""
 
 _EN_RULES = """Selection rules:
 - A DECISION is a choice the participants made DURING the conversation ("we agreed", "we'll go with", "we rejected"). A description of how a product, process or system works is NOT a decision.
 - An ACTION ITEM is a concrete action a person committed to doing AFTER the conversation. A step in a demo, a product capability, or the duty of an abstract role is NOT an action item.
 - If this is a demo, presentation or training session and the participants agreed on nothing, write exactly "None" in both Decisions and Action items. That is a normal, expected answer - do not pad the sections.
+- The sections do not overlap: the same item must not appear under both Decisions and Action items. A decision is what was agreed; an action item is what someone will do next.
 - Do not state anything that is not in the transcript."""
 
 _RU_FORMAT = """## Основные темы
@@ -38,7 +40,11 @@ _RU_FORMAT = """## Основные темы
 (список решений, принятых участниками; если их не было — «Нет»)
 
 ## Задачи
-(список задач с ответственным, если он определим; если их не было — «Нет»)"""
+(список задач с ответственным, если он определим; если их не было — «Нет»)
+
+Каждый пункт — отдельной строкой, начинающейся с «- ». Не объединяй пункты
+в один абзац через запятую. Единственное исключение — слово «Нет», которое
+пишется без дефиса."""
 
 _EN_FORMAT = """## Key topics
 (bullet list of key topics discussed)
@@ -47,7 +53,11 @@ _EN_FORMAT = """## Key topics
 (decisions the participants made; "None" if there were none)
 
 ## Action items
-(action items with an owner where identifiable; "None" if there were none)"""
+(action items with an owner where identifiable; "None" if there were none)
+
+Put every item on its own line starting with "- ". Never merge items into a
+single comma-separated paragraph. The one exception is the word "None", which
+is written without a dash."""
 
 RU_SINGLE = f"""Ты составляешь резюме расшифровки деловой встречи или звонка на русском языке.
 Строки вида [SPEAKER_00]: текст обозначают говорящих (могут отсутствовать).
