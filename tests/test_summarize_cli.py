@@ -80,7 +80,7 @@ def test_run_writes_the_summary_to_the_output_path(tmp_path):
     transcript = tmp_path / "talk.txt"
     transcript.write_text("[SPEAKER_00]: привет\n", encoding="utf-8")
     out = tmp_path / "talk-summary.txt"
-    final = "## Основные темы\n- тема\n\n## Решения\n- Нет\n\n## Задачи\n- Нет"
+    final = "## Участники\n- Иван (аналитик)\n\n## Основные темы\n- тема\n\n## Решения\n- Нет\n\n## Задачи\n- Нет"
 
     code = summarize.run(
         parse([str(transcript), "--output", str(out)]), backend=fake_backend(final)
@@ -126,3 +126,54 @@ def test_importing_the_summarizer_does_not_pull_in_torch():
         [sys.executable, "-c", probe], capture_output=True, text=True, cwd="."
     )
     assert result.returncode == 0, result.stderr
+
+
+# --- prompt override ------------------------------------------------------
+
+def test_prompt_override_defaults_to_none_so_our_prompts_are_used():
+    assert parse(["talk.txt", "--output", "o.txt"]).prompt_dir is None
+
+
+def test_prompt_override_comes_from_the_environment():
+    args = parse(["talk.txt", "--output", "o.txt"], {"WHISP_SUMMARY_PROMPT": "/tmp/mine"})
+    assert str(args.prompt_dir) == "/tmp/mine"
+
+
+def test_prompt_override_flag_beats_the_environment():
+    args = parse(
+        ["talk.txt", "--output", "o.txt", "--prompt-dir", "/tmp/flag"],
+        {"WHISP_SUMMARY_PROMPT": "/tmp/env"},
+    )
+    assert str(args.prompt_dir) == "/tmp/flag"
+
+
+def test_a_bad_prompt_override_fails_the_run_without_writing(tmp_path, capsys):
+    transcript = tmp_path / "talk.txt"
+    transcript.write_text("[SPEAKER_00]: привет\n", encoding="utf-8")
+    out = tmp_path / "talk-summary.txt"
+    args = parse(
+        [str(transcript), "--output", str(out), "--prompt-dir", str(tmp_path / "missing")]
+    )
+    code = summarize.run(args, backend=fake_backend("x"))
+    assert code != 0
+    assert not out.exists()
+    assert "WHISP_SUMMARY_PROMPT" in capsys.readouterr().err
+
+
+def test_print_prompt_writes_the_built_in_template_and_exits_ok(capsys):
+    from whisp import prompts
+
+    code = summarize.run(parse(["--print-prompt", "map", "--language", "ru"]), backend=None)
+    assert code == 0
+    assert capsys.readouterr().out.strip() == prompts.RU_MAP.strip()
+
+
+def test_print_prompt_does_not_need_a_transcript_or_output():
+    args = parse(["--print-prompt", "single"])
+    assert args.print_prompt == "single"
+
+
+def test_print_prompt_rejects_an_unknown_kind(capsys):
+    code = summarize.run(parse(["--print-prompt", "nonsense"]), backend=None)
+    assert code != 0
+    assert "single" in capsys.readouterr().err

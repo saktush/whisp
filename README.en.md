@@ -109,8 +109,10 @@ whisp <file> [-sum] [--no-diarize]
 - The transcript is written to `<file>.txt` **next to the source file**, not into the
   project folder.
 - With `-sum`, an additional `<file>-summary.txt` is produced with a structured summary:
-  topics, decisions, action items. The summary is produced by a **local** model through
-  MLX, in the language given by `WHISP_LANG`.
+  participants, topics, decisions, action items. The summary is produced by a **local**
+  model through MLX, in the language given by `WHISP_LANG`. The participant roster is
+  reconstructed from the transcript itself -- from whoever introduced themselves or was
+  addressed by name.
 - A system sound plays when the run finishes.
 
 The summary is deliberately a best-effort step: if it fails or exceeds
@@ -177,7 +179,8 @@ Environment variables (they can also go straight into `.env`):
 | `WHISP_SUMMARY_MODEL` | `mlx-community/Qwen3-4B-Instruct-2507-4bit` | Summary model; `sonnet` for the `claude` backend |
 | `WHISP_SUMMARY_LANG` | value of `WHISP_LANG` | Summary language: `ru`, or English for anything else |
 | `WHISP_SUMMARY_CHUNK_TOKENS` | `6000` | Fragment size; longer transcripts go through map-reduce |
-| `WHISP_SUMMARY_MAX_TOKENS` | `2048` | Upper bound on summary length, in tokens |
+| `WHISP_SUMMARY_MAX_TOKENS` | `3072` | Upper bound on summary length, in tokens |
+| `WHISP_SUMMARY_PROMPT` | — | Directory with your own `single.txt`, `map.txt`, `reduce.txt` |
 | `WHISP_SUMMARY_TIMEOUT` | `1800` | Summary generation timeout, seconds (model loading excluded) |
 | `WHISP_BATCH_SIZE` | `8` | Transcription batch size |
 | `WHISP_DIARIZE_BATCH_SIZE` | `64` | Diarization batch size |
@@ -186,6 +189,22 @@ Environment variables (they can also go straight into `.env`):
 ```bash
 WHISP_LANG=en whisp interview.mp3
 ```
+
+Custom prompts are supplied as a directory. Every file is optional: whatever you
+leave out keeps the built-in prompt, so you can replace a single phase.
+
+```bash
+mkdir -p ~/whisp-prompts
+# start from the built-in prompt and edit it
+./.venv/bin/python -m whisp.summarize --print-prompt single > ~/whisp-prompts/single.txt
+WHISP_SUMMARY_PROMPT=~/whisp-prompts whisp meeting.m4a -sum
+```
+
+| File | Used when |
+|---|---|
+| `single.txt` | The whole transcript fits one fragment |
+| `map.txt` | Notes on one fragment of a long transcript |
+| `reduce.txt` | Merging the notes into the final summary |
 
 ## What's in the repository
 
@@ -196,7 +215,7 @@ WHISP_LANG=en whisp interview.mp3
 | `whisp/` | Python pipeline driver: transcription and diarization run in parallel, device selection, timing |
 | `whisp/summarize.py` | Summarization: chunking, map-reduce, CLI (`python -m whisp.summarize`) |
 | `whisp/summary_backends.py` | Summary engines: local MLX and `claude` |
-| `whisp/prompts.py` | Summary prompts for Russian and English |
+| `whisp/prompts.py` | Summary prompts for Russian and English, plus custom-prompt loading |
 | `pyproject.toml` | Environment dependencies (`pip install -e .`) |
 | `automation/install-folder-action.sh` | Compiles and attaches the Folder Action |
 | `automation/uninstall-folder-action.sh` | Detaches the Folder Action |

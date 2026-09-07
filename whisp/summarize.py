@@ -30,7 +30,9 @@ from whisp.timing import StageLog
 DEFAULT_MLX_MODEL = "mlx-community/Qwen3-4B-Instruct-2507-4bit"
 DEFAULT_CLAUDE_MODEL = "sonnet"
 DEFAULT_CHUNK_TOKENS = 6000
-DEFAULT_MAX_TOKENS = 2048
+# Four sections; 2048 truncated a real 25k-token transcript mid-way through
+# the last one. Combined with the 15-bullet cap in the prompt this leaves room.
+DEFAULT_MAX_TOKENS = 3072
 # Ceiling for a single chunk's intermediate notes; see summarize().
 MAP_TOKEN_CAP = 768
 # Raised from the 900 that sized a ~60s network call. Model load is timed
@@ -130,6 +132,7 @@ def summarize(
     log=None,
     deadline: float | None = None,
     monotonic: Callable[[], float] = time.monotonic,
+    prompt_dir=None,
 ) -> str:
     """Summarize a transcript, single-pass or map-reduce depending on length.
 
@@ -144,7 +147,7 @@ def summarize(
 
     if len(chunks) == 1:
         started_call = monotonic()
-        raw = backend.generate(prompts.select(language, "single"), chunks[0], max_tokens)
+        raw = backend.generate(prompts.select(language, "single", prompt_dir), chunks[0], max_tokens)
         if log is not None:
             log.record("summary-single", monotonic() - started_call)
     else:
@@ -153,7 +156,7 @@ def summarize(
         # transcript. The notes are intermediate and feed a second pass, so
         # they are capped well below the final summary's budget.
         map_max_tokens = min(max_tokens, MAP_TOKEN_CAP)
-        map_prompt = prompts.select(language, "map")
+        map_prompt = prompts.select(language, "map", prompt_dir)
         notes = []
         for index, chunk in enumerate(chunks, 1):
             _check_deadline(started, deadline, monotonic, f"chunk {index}/{len(chunks)}")
@@ -167,7 +170,7 @@ def summarize(
             f"[Фрагмент {i}]\n{note}" for i, note in enumerate(notes, 1)
         )
         started_call = monotonic()
-        raw = backend.generate(prompts.select(language, "reduce"), joined, max_tokens)
+        raw = backend.generate(prompts.select(language, "reduce", prompt_dir), joined, max_tokens)
         if log is not None:
             log.record("summary-reduce", monotonic() - started_call)
 
@@ -178,6 +181,16 @@ def summarize(
         raise SummaryError(
             f"the model returned no sections; first 200 chars: {summary[:200]!r}"
         )
+    if prompt_dir is None:
+        # Only meaningful for our own templates; a custom prompt may ask for
+        # any shape at all.
+        missing = [h for h in prompts.sections(language) if h not in summary]
+        if missing:
+            raise SummaryError(
+                "the summary stopped before it was finished -- missing "
+                + ", ".join(h.removeprefix("## ") for h in missing)
+                + ". Raise WHISP_SUMMARY_MAX_TOKENS and try again."
+            )
     return summary
 
 
@@ -186,8 +199,8 @@ def parse_args(argv: list[str], env: dict | None = None) -> argparse.Namespace:
     env = os.environ if env is None else env
 
     parser = argparse.ArgumentParser(prog="whisp.summarize", description=__doc__)
-    parser.add_argument("transcript")
-    parser.add_argument("--output", required=True)
+    parser.add_argument("transcript", nargs="?")
+    parser.add_argument("--output")
     parser.add_argument("--backend", default=env.get("WHISP_SUMMARY_BACKEND", "mlx"))
     parser.add_argument("--model", default=env.get("WHISP_SUMMARY_MODEL"))
     parser.add_argument(
@@ -205,12 +218,24 @@ def parse_args(argv: list[str], env: dict | None = None) -> argparse.Namespace:
         default=int(env.get("WHISP_SUMMARY_MAX_TOKENS", DEFAULT_MAX_TOKENS)),
     )
     parser.add_argument(
+        "--print-prompt",
+        metavar="KIND",
+        help=f"print the built-in prompt for one of {', '.join(prompts.KINDS)} and exit",
+    )
+    parser.add_argument(
+        "--prompt-dir",
+        default=env.get("WHISP_SUMMARY_PROMPT") or None,
+        help="directory with single.txt / map.txt / reduce.txt overriding our prompts",
+    )
+    parser.add_argument(
         "--timeout",
         type=float,
         default=float(env.get("WHISP_SUMMARY_TIMEOUT", DEFAULT_TIMEOUT)),
     )
 
     args = parser.parse_args(argv)
+    if args.prompt_dir is not None:
+        args.prompt_dir = pathlib.Path(args.prompt_dir)
     if args.model is None:
         args.model = (
             DEFAULT_CLAUDE_MODEL if args.backend == "claude" else DEFAULT_MLX_MODEL
@@ -224,6 +249,22 @@ def run(args: argparse.Namespace, backend: Backend | None = None) -> int:
     Never raises for an expected failure: the transcript is the deliverable
     and a missing summary must not take the run down with it.
     """
+    if args.print_prompt:
+        try:
+            print(prompts.select(args.language, args.print_prompt, args.prompt_dir))
+        except KeyError:
+            print(
+                f"whisp: unknown prompt kind {args.print_prompt!r}; "
+                f"expected one of {', '.join(prompts.KINDS)}",
+                file=sys.stderr,
+            )
+            return 1
+        return 0
+
+    if not args.transcript or not args.output:
+        print("whisp: a transcript and --output are required", file=sys.stderr)
+        return 1
+
     transcript_path = pathlib.Path(args.transcript)
     try:
         text = transcript_path.read_text(encoding="utf-8")
@@ -257,6 +298,7 @@ def run(args: argparse.Namespace, backend: Backend | None = None) -> int:
             max_tokens=args.max_tokens,
             log=log,
             deadline=args.timeout,
+            prompt_dir=args.prompt_dir,
         )
         log.total(time.monotonic() - started)
     except SummaryTimeout as exc:

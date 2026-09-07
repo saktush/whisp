@@ -22,7 +22,7 @@ needs_transcript = pytest.mark.skipif(
     not TRANSCRIPT, reason="set WHISP_TEST_TRANSCRIPT to run"
 )
 
-RU_HEADERS = ("## Основные темы", "## Решения", "## Задачи")
+RU_HEADERS = ("## Участники", "## Основные темы", "## Решения", "## Задачи")
 
 
 def backend():
